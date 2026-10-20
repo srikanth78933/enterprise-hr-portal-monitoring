@@ -1,0 +1,73 @@
+# Metricbeat: node (system) and Kubernetes (kubelet) metrics, sent straight to Elasticsearch on the ELK EC2 instance.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: metricbeat
+  labels:
+    {{- include "beats.labels" . | nindent 4 }}
+    app.kubernetes.io/name: metricbeat
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: metricbeat
+  template:
+    metadata:
+      labels:
+        {{- include "beats.labels" . | nindent 8 }}
+        app.kubernetes.io/name: metricbeat
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/metricbeat-config.yaml") . | sha256sum | trunc 16 }}
+    spec:
+      serviceAccountName: metricbeat
+      terminationGracePeriodSeconds: 30
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: metricbeat
+          image: docker.elastic.co/beats/metricbeat:{{ .Values.version }}
+          # -system.hostfs: read the node's /proc and cgroups instead of the container's
+          args: ["-c", "/etc/metricbeat.yml", "-e", "--system.hostfs=/hostfs"]
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: ELASTICSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.elk.credentialsSecret }}
+                  key: METRICBEAT_PASSWORD
+          securityContext:
+            runAsUser: 0
+          resources:
+            {{- toYaml .Values.metricbeat.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/metricbeat.yml
+              subPath: metricbeat.yml
+              readOnly: true
+            - name: data
+              mountPath: /usr/share/metricbeat/data
+            - name: proc
+              mountPath: /hostfs/proc
+              readOnly: true
+            - name: cgroup
+              mountPath: /hostfs/sys/fs/cgroup
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: metricbeat-config
+            defaultMode: 0640
+        - name: data
+          hostPath:
+            path: /var/lib/metricbeat-data
+            type: DirectoryOrCreate
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup

@@ -1,0 +1,36 @@
+# ===============================================================
+# Filebeat + Metricbeat on every EKS node -> ELK EC2 instance
+# ===============================================================
+
+# Must match ELASTIC_VERSION in elk/elk.env
+version: "9.5.5"
+
+# Name of the application container (and its app.kubernetes.io/name label).
+# Filebeat joins its Java stack traces; Logstash parses its Spring Boot log lines.
+appName: enterprise-hr-portal
+
+elk:
+  # Private IP of the ELK EC2 instance. Jenkins sets it automatically (--set elk.host=...).
+  host: ""
+  logstashPort: 5044
+  elasticsearchPort: 9200
+  # Kubernetes Secret with key METRICBEAT_PASSWORD (created by Jenkins from AWS Secrets Manager)
+  credentialsSecret: elk-credentials
+
+filebeat:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 200Mi
+    limits:
+      memory: 300Mi
+
+metricbeat:
+  # How often node, pod and container metrics are collected
+  period: 10s
+  resources:
+    requests:
+      cpu: 100m
+      memory: 200Mi
+    limits:
+      memory: 400Mi

@@ -1,0 +1,52 @@
+# Filebeat: tails every container log on the node and sends it to Logstash on the ELK EC2 instance.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  labels:
+    {{- include "beats.labels" . | nindent 4 }}
+data:
+  filebeat.yml: |-
+    filebeat.autodiscover:
+      providers:
+        - type: kubernetes
+          node: ${NODE_NAME}
+          templates:
+            # HR Portal containers (container name = Helm chart name in the deploy repo):
+            # join Java stack-trace lines to the log line they belong to
+            - condition:
+                equals:
+                  kubernetes.container.name: {{ .Values.appName | quote }}
+              config:
+                - type: filestream
+                  id: app-${data.kubernetes.container.id}
+                  paths:
+                    - /var/log/containers/*-${data.kubernetes.container.id}.log
+                  prospector.scanner.symlinks: true
+                  parsers:
+                    - container: ~
+                    - multiline:
+                        type: pattern
+                        pattern: '^\d{4}-\d{2}-\d{2}'
+                        negate: true
+                        match: after
+            # Every other container: one event per line
+            - condition:
+                not:
+                  equals:
+                    kubernetes.container.name: {{ .Values.appName | quote }}
+              config:
+                - type: filestream
+                  id: container-${data.kubernetes.container.id}
+                  paths:
+                    - /var/log/containers/*-${data.kubernetes.container.id}.log
+                  prospector.scanner.symlinks: true
+                  parsers:
+                    - container: ~
+
+    processors:
+      - add_cloud_metadata: ~
+      - add_host_metadata: ~
+
+    output.logstash:
+      hosts: ["{{ include "beats.elkHost" . }}:{{ .Values.elk.logstashPort }}"]

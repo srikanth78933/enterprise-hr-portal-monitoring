@@ -1,0 +1,10 @@
+# Written on the ELK instance by deploy.sh (contains passwords)
+.env
+elk/.env
+# Created by the Jenkinsfile
+ssm-params.json
+
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

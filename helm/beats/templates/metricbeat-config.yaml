@@ -1,0 +1,43 @@
+# Metricbeat: node (system) and Kubernetes (kubelet) metrics, sent straight to Elasticsearch on the ELK EC2 instance.
+# Index templates and dashboards are loaded once by elk/scripts/setup.sh, so this user only writes data.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metricbeat-config
+  labels:
+    {{- include "beats.labels" . | nindent 4 }}
+data:
+  metricbeat.yml: |-
+    metricbeat.modules:
+      - module: system
+        period: {{ .Values.metricbeat.period }}
+        metricsets: ["cpu", "load", "memory", "network", "process", "process_summary"]
+        processes: ['.*']
+        process.include_top_n:
+          by_cpu: 5
+          by_memory: 5
+      - module: system
+        period: 1m
+        metricsets: ["filesystem", "fsstat"]
+        processors:
+          - drop_event.when.regexp:
+              system.filesystem.mount_point: '^/(sys|cgroup|proc|dev|etc|host|lib|snap)($|/)'
+      - module: kubernetes
+        period: {{ .Values.metricbeat.period }}
+        metricsets: ["node", "system", "pod", "container", "volume"]
+        node: ${NODE_NAME}
+        hosts: ["https://${NODE_NAME}:10250"]
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        ssl.verification_mode: "none"
+
+    processors:
+      - add_cloud_metadata: ~
+
+    # Setup (templates, ILM, dashboards) is done on the ELK server
+    setup.template.enabled: false
+    setup.ilm.check_exists: false
+
+    output.elasticsearch:
+      hosts: ["http://{{ include "beats.elkHost" . }}:{{ .Values.elk.elasticsearchPort }}"]
+      username: metricbeat_writer
+      password: ${ELASTICSEARCH_PASSWORD}

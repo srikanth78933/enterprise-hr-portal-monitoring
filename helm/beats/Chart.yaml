@@ -1,0 +1,6 @@
+apiVersion: v2
+name: beats
+description: Filebeat and Metricbeat DaemonSets that ship EKS logs and metrics to the ELK EC2 instance
+type: application
+version: 1.0.0
+appVersion: "9.5.5"
