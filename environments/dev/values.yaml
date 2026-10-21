@@ -1,0 +1,7 @@
+# ===============================================================
+# DEV overrides for the Beats chart (helm/beats/values.yaml)
+# elk.host is set by Jenkins from the running ELK EC2 instance, so nothing is required here.
+# ===============================================================
+
+metricbeat:
+  period: 10s

@@ -1,18 +1,22 @@
-// Monitoring pipeline (prod):
+// Monitoring pipeline for one environment (dev or prod):
 //   1. ELK stack on its EC2 instance: upload elk/ to S3, run scripts/deploy.sh through AWS Systems Manager
-//   2. Filebeat + Metricbeat DaemonSets on the prod EKS cluster (Helm)
+//   2. Filebeat + Metricbeat DaemonSets on the environment's EKS cluster (Helm)
 pipeline {
     agent any
 
+    parameters {
+        choice(name: 'ENVIRONMENT', choices: ['dev', 'prod'], description: 'Environment to monitor')
+    }
+
     environment {
         AWS_REGION    = 'ap-south-1'
-        EKS_CLUSTER   = 'mycompany-prod-eks'
+        EKS_CLUSTER   = "mycompany-${params.ENVIRONMENT}-eks"
         K8S_NAMESPACE = 'monitoring'
 
-        // Names created by the infra repo (enable_elk = true in prod)
-        ELK_NAME      = 'enterprise-hr-portal-prod-elk'   // EC2 Name tag; config bucket is <ELK_NAME>-config-<account-id>
-        ELK_SECRET_ID = 'enterprise-hr-portal/prod/elk'
-        KIBANA_ALB    = 'hrp-prod-kibana'
+        // Names created by the infra repo (enable_elk = true)
+        ELK_NAME      = "enterprise-hr-portal-${params.ENVIRONMENT}-elk"   // EC2 Name tag; config bucket is <ELK_NAME>-config-<account-id>
+        ELK_SECRET_ID = "enterprise-hr-portal/${params.ENVIRONMENT}/elk"
+        KIBANA_ALB    = "hrp-${params.ENVIRONMENT}-kibana"
 
         AWS_ACCESS_KEY_ID     = credentials('AWS_ACCESS_KEY_ID')
         AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
@@ -30,7 +34,7 @@ pipeline {
                 sh '''
                     bash -n elk/scripts/deploy.sh
                     bash -n elk/scripts/setup.sh
-                    helm lint helm/beats -f environments/prod/values.yaml --set elk.host=127.0.0.1
+                    helm lint helm/beats -f environments/$ENVIRONMENT/values.yaml --set elk.host=127.0.0.1
                 '''
             }
         }
@@ -44,7 +48,7 @@ pipeline {
                             --query 'Reservations[0].Instances[0].[InstanceId,PrivateIpAddress]' --output text
                     ''').trim().split()
                     if (info.size() != 2 || info[0] == 'None') {
-                        error("No running EC2 instance tagged Name=${env.ELK_NAME}. Run terraform apply for prod in the infra repo first.")
+                        error("No running EC2 instance tagged Name=${env.ELK_NAME}. Run terraform apply for ${params.ENVIRONMENT} (enable_elk = true) in the infra repo first.")
                     }
                     env.ELK_INSTANCE_ID = info[0]
                     env.ELK_PRIVATE_IP  = info[1]
@@ -55,7 +59,10 @@ pipeline {
             }
         }
 
-        stage('Approve') {
+        stage('Approve Production') {
+            when {
+                expression { params.ENVIRONMENT == 'prod' }
+            }
             steps {
                 timeout(time: 30, unit: 'MINUTES') {
                     input message: 'Deploy the ELK stack and Beats to PRODUCTION?', ok: 'Deploy'
@@ -81,7 +88,7 @@ pipeline {
     "mkdir -p /opt/elk",
     "aws s3 sync s3://${ELK_CONFIG_BUCKET}/elk/ /opt/elk/ --delete --exclude .env --region ${AWS_REGION}",
     "chmod +x /opt/elk/scripts/*.sh",
-    "ELK_SECRET_ID=${ELK_SECRET_ID} AWS_REGION=${AWS_REGION} /opt/elk/scripts/deploy.sh"
+    "ELK_ENVIRONMENT=${ENVIRONMENT} ELK_SECRET_ID=${ELK_SECRET_ID} AWS_REGION=${AWS_REGION} /opt/elk/scripts/deploy.sh"
   ],
   "executionTimeout": ["1800"]
 }
@@ -137,7 +144,7 @@ EOF
                 sh '''
                     helm upgrade --install beats helm/beats \
                         --namespace $K8S_NAMESPACE \
-                        -f environments/prod/values.yaml \
+                        -f environments/$ENVIRONMENT/values.yaml \
                         --set elk.host=$ELK_PRIVATE_IP \
                         --wait --timeout 5m
                     kubectl get daemonset,pods -n $K8S_NAMESPACE -o wide

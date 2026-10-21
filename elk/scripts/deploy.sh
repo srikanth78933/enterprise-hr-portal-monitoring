@@ -16,6 +16,9 @@ set -a
 source ./elk.env
 set +a
 
+# The pipeline passes the environment (dev/prod); it names the log data streams, e.g. logs-hr_portal-dev
+ENVIRONMENT="${ELK_ENVIRONMENT:-$ENVIRONMENT}"
+
 if [ -n "${ELK_SECRET_ID:-}" ]; then
   echo "Reading passwords from Secrets Manager: ${ELK_SECRET_ID}"
   SECRET_JSON=$(aws secretsmanager get-secret-value --secret-id "$ELK_SECRET_ID" \
