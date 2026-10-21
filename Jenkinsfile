@@ -84,6 +84,7 @@ pipeline {
 {
   "commands": [
     "set -e",
+    "cloud-init status --wait > /dev/null || true",
     "export PATH=\\$PATH:/snap/bin",
     "mkdir -p /opt/elk",
     "aws s3 sync s3://${ELK_CONFIG_BUCKET}/elk/ /opt/elk/ --delete --exclude .env --region ${AWS_REGION}",
