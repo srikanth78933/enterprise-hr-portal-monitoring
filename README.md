@@ -110,11 +110,24 @@ Where to look:
 
 | Goal | In Kibana |
 |------|-----------|
-| HR Portal logs, live | **Discover** → data view *HR Portal application logs* → turn on auto-refresh (5 s) |
-| Only errors | Discover, query `log.level : "ERROR"` |
-| One pod or namespace | Discover, query `kubernetes.pod.name : "enterprise-hr-portal-*"` |
+| HR Portal logs, live | **Discover** → data view *HR Portal application logs* → time range **Last 1 hour** → auto-refresh 5 s |
+| Page requests only | `log.logger : "c.e.e.config.RequestLoggingFilter"` (lines like `GET /employees -> 200 (12 ms)`) |
+| Business events | `message : "Created" or message : "Deleted" or message : "Updated"` |
+| Only problems | `log.level : "WARN" or log.level : "ERROR"` |
+| One pod or namespace | `kubernetes.pod.name : "enterprise-hr-portal-*"` or `kubernetes.namespace : "kube-system"` |
 | Node and pod metrics | **Dashboards** → `[Metricbeat Kubernetes] Overview`, `[Metricbeat System] Host overview` |
 | Alerts | **Stack Management → Rules** → e.g. *Elasticsearch query*: `log.level:ERROR` more than 10 in 5 minutes |
+
+Tips:
+
+- **Discover shows nothing?** Widen the time range. The app only logs when it is used (page requests,
+  changes, errors), so a quiet app has no recent lines. Click through the app and refresh.
+- Add the columns `log.level`, `kubernetes.pod.name` and `message` for a readable table.
+- A few harmless entries: one unparsed line per pod at start-up (`Picked up JAVA_TOOL_OPTIONS…`, tagged
+  `_springboot_parse_failure`) and Metricbeat's *non fatal error … reporting partial metrics* for some
+  processes it may not read from a container.
+- Kibana's Dev Tools console proxy is disabled in this version's defaults; query Elasticsearch on the
+  instance instead (next section).
 
 ## Operating the ELK instance
 
@@ -135,7 +148,15 @@ Useful Elasticsearch checks (on the instance):
 source /opt/elk/.env
 curl -s -u elastic:$ELASTIC_PASSWORD localhost:9200/_cluster/health?pretty
 curl -s -u elastic:$ELASTIC_PASSWORD "localhost:9200/_cat/indices/.ds-*?v&s=index"
+
+# How many HR Portal log lines in the last 15 minutes, and the newest one
+curl -s -u elastic:$ELASTIC_PASSWORD localhost:9200/logs-hr_portal-*/_count -H 'Content-Type: application/json' \
+  -d '{"query":{"range":{"@timestamp":{"gte":"now-15m"}}}}'
+curl -s -u elastic:$ELASTIC_PASSWORD "localhost:9200/logs-hr_portal-*/_search?size=1&sort=@timestamp:desc&pretty"
 ```
+
+The same checks work without a shell on the instance: `aws ssm send-command --document-name
+AWS-RunShellScript --instance-ids <instance_id> --parameters 'commands=[...]'`.
 
 - **Upgrade the stack:** change `ELASTIC_VERSION` in `elk/elk.env` and `version` in `helm/beats/values.yaml`,
   then run the pipeline.
